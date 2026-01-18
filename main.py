@@ -306,8 +306,8 @@ def main():
     if df.empty:
         return
 
-    # leave 3 jobs for testing
-    df = df.head(3)
+    # # leave 3 jobs for testing
+    # df = df.head(3)
 
     scored_jobs = []
 
