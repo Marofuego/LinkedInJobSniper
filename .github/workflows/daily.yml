@@ -13,6 +13,8 @@ jobs:
   run-agent:
     runs-on: ubuntu-latest  # Runs on the latest Ubuntu environment
 
+    environment: JobSniperEnvVar
+
     steps:
       # 1. Checkout code from repository (including the resumes folder)
       - name: Checkout code
