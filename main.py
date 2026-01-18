@@ -36,6 +36,8 @@ RESULT_LIMIT = 10
 HOURS_OLD = 24
 PROXY_URL = os.getenv("PROXY_URL", None)
 RESUME = os.getenv("RESUME_TEXT", "")
+API_KEY = os.getenv("API_KEY")
+BASE_URL = os.getenv("API_BASE")
 
 # Define the output data structure from AI
 class JobEvaluation(BaseModel):
@@ -51,8 +53,8 @@ class JobEvaluation(BaseModel):
 llm = ChatOpenAI(
     model_name="gpt-4o-mini",
     temperature=0,
-    api_key=os.getenv("API_KEY"),
-    base_url=os.getenv("API_BASE"),
+    api_key=API_KEY,
+    base_url=BASE_URL,
 )
 
 
