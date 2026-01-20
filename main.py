@@ -6,7 +6,7 @@ from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# web clawling imports if needed
+# web clawing imports if needed
 import requests
 from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
@@ -52,7 +52,7 @@ class JobEvaluation(BaseModel):
 
 # AI model
 llm = ChatOpenAI(
-    model_name="gpt-4o-mini",
+    model_name="gemini-3-flash-preview",
     temperature=0,
     api_key=API_KEY,
     base_url=BASE_URL,
