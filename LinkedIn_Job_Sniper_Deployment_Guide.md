@@ -270,14 +270,14 @@ If you want to modify the job type and location being searched, you can edit the
 3. Find these lines of code (around lines 20-30):
    ```python
    SEARCH_TERM = "Software Engineer"
-   LOCATION = "Singapore"
+   LOCATION = ["Singapore"]
    RESULTS_WANTED = 20
    ```
 
 4. Modify to what you want:
    ```python
    SEARCH_TERM = "Product Manager"  # Change to your desired position
-   LOCATION = "New York"  # Change to your desired city
+   LOCATION = ["New York"]  # Change to your desired city
    RESULTS_WANTED = 30  # Number of jobs to search per run
    ```
 
