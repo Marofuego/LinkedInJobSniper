@@ -38,7 +38,7 @@ load_dotenv()
 # Configuration
 SEARCH_TERM = "Data Engineer"
 LOCATIONS = ["Canada", "Toronto, Canada", "Toronto, ON"]
-RESULT_LIMIT = 30
+RESULT_LIMIT = 40
 HOURS_OLD = 24
 PROXY_URL = os.getenv("PROXY_URL", None)
 RESUME = os.getenv("RESUME_TEXT", None)
