@@ -58,7 +58,7 @@ class JobEvaluation(BaseModel):
 
 # AI model
 llm = ChatOpenAI(
-    model_name="gemini-3-flash-preview",
+    model="gpt-5-mini",
     temperature=0,
     api_key=API_KEY,
     base_url=BASE_URL,
