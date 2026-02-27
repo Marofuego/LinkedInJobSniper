@@ -36,10 +36,19 @@ from pypdf import PdfReader
 load_dotenv()
 
 # Configuration
-SEARCH_TERM = "Data Engineer"
+# Support multiple keywords (each term will be searched and then results will be merged & de-duplicated).
+
+SEARCH_TERMS = [
+    "Data Engineer",
+    "Analytics Engineer",
+    "AI Engineer",
+    "Machine Learning Engineer",
+    "Data Platform Engineer",
+    "Platform Engineer"
+]
 LOCATIONS = ["Canada", "Toronto, Canada", "Toronto, ON"]
 RESULT_LIMIT = 40
-HOURS_OLD = 24
+HOURS_OLD = 72
 PROXY_URL = os.getenv("PROXY_URL", None)
 RESUME = os.getenv("RESUME_TEXT", None)
 API_KEY = os.getenv("OPENAI_API_KEY")
@@ -191,14 +200,14 @@ def fetch_missing_description(url: str, proxies: dict = None) -> str:
         return ""
 
 # scrape jobs
-def get_jobs_data(location: str) -> pd.DataFrame:
+def get_jobs_data(location: str, search_term: str) -> pd.DataFrame:
     """
     Scrape job listings by JobSpy.
 
     Add Retry logic if needed.
     """
     proxies = [PROXY_URL] if PROXY_URL else None
-    print(f"🕵️  CareerScout is searching for '{SEARCH_TERM}' in '{location}'...")
+    print(f"🕵️  CareerScout is searching for '{search_term}' in '{location}'...")
     print(f"🔌  Proxy: {proxies[0] if proxies else 'None'}")
 
     MAX_RETRIES = 5
@@ -208,7 +217,7 @@ def get_jobs_data(location: str) -> pd.DataFrame:
             print(f"   🔄 Attempt {attempt} of {MAX_RETRIES}...")
             jobs = scrape_jobs(
                 site_name=["linkedin"],
-                search_term=SEARCH_TERM,
+                search_term=search_term,
                 location=location,
                 result_wanted=RESULT_LIMIT,
                 hours_old=HOURS_OLD,
@@ -221,7 +230,8 @@ def get_jobs_data(location: str) -> pd.DataFrame:
             print(f"     ❌  Error on attempt {attempt}: {str(e)}")
             print(f"❌  Error during job scraping: {str(e)}")
 
-            if attempt > MAX_RETRIES:
+            # Retry with backoff; only exit after the final attempt.
+            if attempt < MAX_RETRIES:
                 wait_time = random.uniform(3, 6)
                 print(f"   ⏳ Waiting for {wait_time:.2f} seconds before retrying...")
                 time.sleep(wait_time)
@@ -321,9 +331,20 @@ def main():
     # 1. Scraping
     df = pd.DataFrame()
     for location in LOCATIONS:
-        df = pd.concat([df,get_jobs_data(location)], ignore_index=True, sort=False)
+        for term in SEARCH_TERMS:
+            jobs_df = get_jobs_data(location, term)
+            if jobs_df is None or jobs_df.empty:
+                continue
+            # Track which keyword/location pulled this job (useful for debugging and tuning).
+            jobs_df["search_term"] = term
+            jobs_df["search_location"] = location
+            df = pd.concat([df, jobs_df], ignore_index=True, sort=False)
     if df.empty:
         return
+
+    # De-duplicate across keywords/locations.
+    if "job_url" in df.columns:
+        df = df.drop_duplicates(subset=["job_url"], keep="first")
 
     # # leave 3 jobs for testing
     # df = df.head(3)
