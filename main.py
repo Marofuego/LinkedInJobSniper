@@ -38,7 +38,7 @@ load_dotenv()
 # Configuration
 # Support multiple keywords (each term will be searched and then results will be merged & de-duplicated).
 
- SEARCH_TERMS = [
+SEARCH_TERMS = [
     "Data Engineer",
     "Analytics Engineer",
     "AI Engineer",
