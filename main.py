@@ -244,22 +244,54 @@ def get_jobs_data(location: str, search_term: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 
+# def evaluate_job(title: str, description: str) -> dict:
+#     """Using Langchain to evaluate a job posting against the resume."""
+#     if not description or len(str(description)) < 50:
+#         return {"score": 0, "reason": "Job description too short or missing"}
+
+#     try:
+#         # 调用 Chain
+#         result: JobEvaluation = evaluation_chain.invoke({
+#             "resume": RESUME[:3000],  # save token
+#             "title": title,
+#             "description": description[:3000]
+#         })
+#         return {"score": result.score, "reason": result.reason}
+
+#     except Exception as e:
+#         print(f"⚠️  AI Evaluation Error for '{title}': {e}")
+#         return {"score": 0, "reason": "AI Error"}
+
 def evaluate_job(title: str, description: str) -> dict:
-    """Using Langchain to evaluate a job posting against the resume."""
     if not description or len(str(description)) < 50:
         return {"score": 0, "reason": "Job description too short or missing"}
 
     try:
-        # 调用 Chain
-        result: JobEvaluation = evaluation_chain.invoke({
-            "resume": RESUME[:3000],  # save token
-            "title": title,
-            "description": description[:3000]
-        })
+        resume_text = str(RESUME)[:3000]
+        desc_text = str(description)[:3000]
+        title_text = str(title or "")
+
+        print("resume_text exists:", bool(resume_text))
+        print("title_text:", title_text)
+        print("desc_text len:", len(desc_text))
+
+        payload = {
+            "resume": resume_text,
+            "title": title_text,
+            "description": desc_text
+        }
+        print("payload ready")
+
+        result: JobEvaluation = evaluation_chain.invoke(payload)
+        print("raw result:", result)
+
+        if result is None:
+            return {"score": 0, "reason": "AI returned None"}
+
         return {"score": result.score, "reason": result.reason}
 
     except Exception as e:
-        print(f"⚠️  AI Evaluation Error for '{title}': {e}")
+        print(f"⚠️ AI Evaluation Error for '{title}': {e}")
         return {"score": 0, "reason": "AI Error"}
 
 def send_email(top_jobs: List[dict]):
