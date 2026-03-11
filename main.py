@@ -297,135 +297,91 @@ def evaluate_job(title: str, description: str) -> dict:
         print(f"⚠️ AI Evaluation Error for '{title}': {e}")
         return {"score": 0, "reason": "AI Error"}
 
+def clean_text(text):
+    if text is None:
+        return ""
+    text = str(text)
+    text = text.replace("\xa0", " ")
+    text = text.replace("\u00a0", " ")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]+", " ", text)
+    return text.strip()
+
+
 def send_email(top_jobs: List[dict]):
     if not top_jobs:
         print("📭  No matching jobs to send.")
         return
 
-    sender = os.getenv("EMAIL_SENDER_LALA")
-    password = os.getenv("EMAIL_PASSWORD_LALA")
+    sender = os.getenv("EMAIL_SENDER")
+    password = os.getenv("EMAIL_PASSWORD")
     receiver = os.getenv("EMAIL_RECEIVER")
 
-    subject = f"🚀 CareerScout: Top {len(top_jobs)} Jobs for {datetime.now().strftime('%Y-%m-%d')}"
+    subject = clean_text(
+        f"🚀 CareerScout: Top {len(top_jobs)} Jobs for {datetime.now().strftime('%Y-%m-%d')}"
+    )
 
-    # HTML Email Template
     html_body = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif;">
-            <h2 style="color: #2c3e50;">CareerScout Daily Report</h2>
-            <p>Found <b>{len(top_jobs)}</b> high-match positions for you today:</p>
-            <table style="border-collapse: collapse; width: 100%; max-width: 800px;">
-                <tr style="background-color: #f8f9fa; text-align: left;">
-                    <th style="padding: 10px; border-bottom: 2px solid #ddd;">Score</th>
-                    <th style="padding: 10px; border-bottom: 2px solid #ddd;">Title</th>
-                    <th style="padding: 10px; border-bottom: 2px solid #ddd;">Company</th>
-                    <th style="padding: 10px; border-bottom: 2px solid #ddd;">Why Match?</th>
-                    <th style="padding: 10px; border-bottom: 2px solid #ddd;">Action</th>
-                </tr>
-        """
+    <html>
+    <body style="font-family: Arial, sans-serif;">
+        <h2 style="color: #2c3e50;">CareerScout Daily Report</h2>
+        <p>Found <b>{len(top_jobs)}</b> high-match positions for you today:</p>
+        <table style="border-collapse: collapse; width: 100%; max-width: 800px;">
+            <tr style="background-color: #f8f9fa; text-align: left;">
+                <th style="padding: 10px; border-bottom: 2px solid #ddd;">Score</th>
+                <th style="padding: 10px; border-bottom: 2px solid #ddd;">Title</th>
+                <th style="padding: 10px; border-bottom: 2px solid #ddd;">Company</th>
+                <th style="padding: 10px; border-bottom: 2px solid #ddd;">Why Match?</th>
+                <th style="padding: 10px; border-bottom: 2px solid #ddd;">Action</th>
+            </tr>
+    """
 
     for job in top_jobs:
-        color = "#27ae60" if job['score'] >= 85 else "#d35400"
-        html_body += f"""
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: {color};">
-                        {job['score']}
-                    </td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee;">{job['title']}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee;">{job['company']}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee; font-size: 14px; color: #555;">
-                        {job['reason']}
-                    </td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee;">
-                        <a href="{job['job_url']}" style="background-color: #007bff; color: white; padding: 5px 10px; text-decoration: none; border-radius: 4px; font-size: 12px;">Apply</a>
-                    </td>
-                </tr>
-            """
+        score = job.get("score", 0)
+        color = "#27ae60" if score >= 85 else "#d35400"
 
-    html_body += """
-            </table>
-            <p style="margin-top: 20px; font-size: 12px; color: #888;">
-                Powered by CareerScout-Agent using LangChain & Python.
-            </p>
-        </body>
-        </html>
+        title = html.escape(clean_text(job.get("title", "")))
+        company = html.escape(clean_text(job.get("company", "")))
+        reason = html.escape(clean_text(job.get("reason", "")))
+        job_url = clean_text(job.get("job_url", ""))
+
+        html_body += f"""
+            <tr>
+                <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: {color};">
+                    {score}
+                </td>
+                <td style="padding: 10px; border-bottom: 1px solid #eee;">{title}</td>
+                <td style="padding: 10px; border-bottom: 1px solid #eee;">{company}</td>
+                <td style="padding: 10px; border-bottom: 1px solid #eee; font-size: 14px; color: #555;">
+                    {reason}
+                </td>
+                <td style="padding: 10px; border-bottom: 1px solid #eee;">
+                    <a href="{job_url}" style="background-color: #007bff; color: white; padding: 5px 10px; text-decoration: none; border-radius: 4px; font-size: 12px;">Apply</a>
+                </td>
+            </tr>
         """
 
-    msg = MIMEMultipart()
-    msg['Subject'] = subject
-    msg['From'] = sender
-    msg['To'] = receiver
-    msg.attach(MIMEText(html_body, 'html'))
+    html_body += """
+        </table>
+        <p style="margin-top: 20px; font-size: 12px; color: #888;">
+            Powered by CareerScout-Agent using LangChain & Python.
+        </p>
+    </body>
+    </html>
+    """
+
+    html_body = clean_text(html_body)
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = Header(subject, "utf-8")
+    msg["From"] = sender
+    msg["To"] = receiver
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
 
     try:
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(sender, password)
             server.send_message(msg)
         print(f"📧  Email sent successfully to {receiver}!")
     except Exception as e:
         print(f"❌  Email sending failed: {e}")
-
-
-def main():
-    # 1. Scraping
-    df = pd.DataFrame()
-    for location in LOCATIONS:
-        for term in SEARCH_TERMS:
-            jobs_df = get_jobs_data(location, term)
-            if jobs_df is None or jobs_df.empty:
-                continue
-            # Track which keyword/location pulled this job (useful for debugging and tuning).
-            jobs_df["search_term"] = term
-            jobs_df["search_location"] = location
-            df = pd.concat([df, jobs_df], ignore_index=True, sort=False)
-    if df.empty:
-        return
-
-    # De-duplicate across keywords/locations.
-    if "job_url" in df.columns:
-        df = df.drop_duplicates(subset=["job_url"], keep="first")
-
-    # # leave 3 jobs for testing
-    # df = df.head(3)
-
-    scored_jobs = []
-
-    req_proxies = {"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None
-
-    # 2. Evaluation Loop
-    print(f"🧠  Analyzing {len(df)} jobs with AI...")
-
-    for _, row in df.iterrows():
-        title = row.get('title', 'Unknown')
-        description = row.get('description')
-        job_url = row.get('job_url')
-
-        if not description or len(str(description)) < 50:
-            if job_url:
-                description = fetch_missing_description(job_url, proxies=req_proxies)
-
-        if not description or len(str(description)) < 50:
-            print(f"   ⚠️  Skipping '{title}' due to insufficient description.")
-            continue
-
-        evaluation = evaluate_job(title, description)
-
-        print()
-        print(f"   📝 '{title}' scored {evaluation['score']}: {evaluation['reason']}")
-
-        if evaluation['score'] >=50:  # 阈值过滤
-            scored_jobs.append({
-                "title": title,
-                "company": row.get('company'),
-                "job_url": row.get('job_url'),
-                "score": evaluation['score'],
-                "reason": evaluation['reason']
-            })
-        # 3. Sorting & Sending
-        scored_jobs.sort(key=lambda x: x['score'], reverse=True)
-        top_20 = scored_jobs[:20]
-
-    send_email(top_20)
-
-if __name__ == "__main__":
-    main()
