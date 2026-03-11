@@ -5,11 +5,14 @@ from typing import List, Optional
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.header import Header
+import html
 import json
 import io
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
+import re
 
 # web clawing imports if needed
 import requests
@@ -31,13 +34,11 @@ from pydantic import BaseModel, Field
 from pypdf import PdfReader
 
 
-
 # Load environment variables
 load_dotenv()
 
 # Configuration
 # Support multiple keywords (each term will be searched and then results will be merged & de-duplicated).
-
 
 SEARCH_TERMS = [
    "UI Designer",
@@ -56,11 +57,12 @@ HOURS_OLD = 72
 PROXY_URL = os.getenv("PROXY_URL_LALA", None)
 RESUME = os.getenv("RESUME_TEXT_LALA", None)
 API_KEY = os.getenv("OPENAI_API_KEY_LALA")
-BASE_URL = os.getenv("API_BASE_LALA")
+BASE_URL = os.getenv("API_BASE")
 CRITERIA = os.getenv("CRITERIA_LALA", "")
 
 print("RESUME raw:", repr(RESUME))
 print("RESUME exists:", bool(RESUME))
+
 
 # Define the output data structure from AI
 class JobEvaluation(BaseModel):
@@ -134,13 +136,16 @@ def load_resume_from_google_drive() -> str:
 
     try:
         creds_dict = json.loads(creds_json_str)
-        creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/drive.readonly"])
+        creds = service_account.Credentials.from_service_account_info(
+            creds_dict,
+            scopes=["https://www.googleapis.com/auth/drive.readonly"]
+        )
 
         service = build('drive', 'v3', credentials=creds)
 
-        requests = service.files().get_media(fileId=file_id)
+        request = service.files().get_media(fileId=file_id)
         file_io = io.BytesIO()
-        downloader = MediaIoBaseDownload(file_io, requests)
+        downloader = MediaIoBaseDownload(file_io, request)
 
         done = False
         while done is False:
@@ -151,7 +156,8 @@ def load_resume_from_google_drive() -> str:
         reader = PdfReader(file_io)
         text = ""
         for page in reader.pages:
-            text += page.extract_text() + "\n"
+            page_text = page.extract_text() or ""
+            text += page_text + "\n"
 
         print("✅  Resume loaded successfully from Google Drive.")
         return text
@@ -159,8 +165,10 @@ def load_resume_from_google_drive() -> str:
         print(f"❌  Failed to load resume from Google Drive: {e}")
         return None
 
+
 if not RESUME:
     RESUME = load_resume_from_google_drive()
+
 
 # web clawling functions
 def fetch_missing_description(url: str, proxies: dict = None) -> str:
@@ -182,9 +190,6 @@ def fetch_missing_description(url: str, proxies: dict = None) -> str:
         # random sleep to mimic human behavior
         time.sleep(random.uniform(2, 5))
 
-        # transfer the proxy to requests format (dictonary)
-        proxies_dict = {"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None
-
         response = requests.get(url, headers=headers, proxies=proxies, timeout=10)
 
         if response.status_code == 200:
@@ -205,6 +210,7 @@ def fetch_missing_description(url: str, proxies: dict = None) -> str:
     except Exception as e:
         print(f"     ❌  Exception during manual fetch: {str(e)}")
         return ""
+
 
 # scrape jobs
 def get_jobs_data(location: str, search_term: str) -> pd.DataFrame:
@@ -247,32 +253,28 @@ def get_jobs_data(location: str, search_term: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 
-# def evaluate_job(title: str, description: str) -> dict:
-#     """Using Langchain to evaluate a job posting against the resume."""
-#     if not description or len(str(description)) < 50:
-#         return {"score": 0, "reason": "Job description too short or missing"}
+def clean_text(text):
+    if text is None:
+        return ""
+    text = str(text)
+    text = text.replace("\xa0", " ")
+    text = text.replace("\u00a0", " ")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]+", " ", text)
+    return text.strip()
 
-#     try:
-#         # 调用 Chain
-#         result: JobEvaluation = evaluation_chain.invoke({
-#             "resume": RESUME[:3000],  # save token
-#             "title": title,
-#             "description": description[:3000]
-#         })
-#         return {"score": result.score, "reason": result.reason}
-
-#     except Exception as e:
-#         print(f"⚠️  AI Evaluation Error for '{title}': {e}")
-#         return {"score": 0, "reason": "AI Error"}
 
 def evaluate_job(title: str, description: str) -> dict:
     if not description or len(str(description)) < 50:
         return {"score": 0, "reason": "Job description too short or missing"}
 
+    if not RESUME or len(clean_text(RESUME)) < 50:
+        return {"score": 0, "reason": "Resume missing or invalid"}
+
     try:
-        resume_text = str(RESUME)[:3000]
-        desc_text = str(description)[:3000]
-        title_text = str(title or "")
+        resume_text = clean_text(RESUME)[:3000]
+        desc_text = clean_text(description)[:3000]
+        title_text = clean_text(title or "")
 
         print("resume_text exists:", bool(resume_text))
         print("title_text:", title_text)
@@ -297,44 +299,38 @@ def evaluate_job(title: str, description: str) -> dict:
         print(f"⚠️ AI Evaluation Error for '{title}': {e}")
         return {"score": 0, "reason": "AI Error"}
 
-def clean_text(text):
-    if text is None:
-        return ""
-    text = str(text)
-    text = text.replace("\xa0", " ")
-    text = text.replace("\u00a0", " ")
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    text = re.sub(r"[ \t]+", " ", text)
-    return text.strip()
-
 
 def send_email(top_jobs: List[dict]):
     if not top_jobs:
         print("📭  No matching jobs to send.")
         return
 
-    sender = os.getenv("EMAIL_SENDER")
-    password = os.getenv("EMAIL_PASSWORD")
+    sender = os.getenv("EMAIL_SENDER_LALA")
+    password = os.getenv("EMAIL_PASSWORD_LALA")
     receiver = os.getenv("EMAIL_RECEIVER")
+
+    if not sender or not password or not receiver:
+        print("❌  Missing email configuration.")
+        return
 
     subject = clean_text(
         f"🚀 CareerScout: Top {len(top_jobs)} Jobs for {datetime.now().strftime('%Y-%m-%d')}"
     )
 
     html_body = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif;">
-        <h2 style="color: #2c3e50;">CareerScout Daily Report</h2>
-        <p>Found <b>{len(top_jobs)}</b> high-match positions for you today:</p>
-        <table style="border-collapse: collapse; width: 100%; max-width: 800px;">
-            <tr style="background-color: #f8f9fa; text-align: left;">
-                <th style="padding: 10px; border-bottom: 2px solid #ddd;">Score</th>
-                <th style="padding: 10px; border-bottom: 2px solid #ddd;">Title</th>
-                <th style="padding: 10px; border-bottom: 2px solid #ddd;">Company</th>
-                <th style="padding: 10px; border-bottom: 2px solid #ddd;">Why Match?</th>
-                <th style="padding: 10px; border-bottom: 2px solid #ddd;">Action</th>
-            </tr>
-    """
+        <html>
+        <body style="font-family: Arial, sans-serif;">
+            <h2 style="color: #2c3e50;">CareerScout Daily Report</h2>
+            <p>Found <b>{len(top_jobs)}</b> high-match positions for you today:</p>
+            <table style="border-collapse: collapse; width: 100%; max-width: 800px;">
+                <tr style="background-color: #f8f9fa; text-align: left;">
+                    <th style="padding: 10px; border-bottom: 2px solid #ddd;">Score</th>
+                    <th style="padding: 10px; border-bottom: 2px solid #ddd;">Title</th>
+                    <th style="padding: 10px; border-bottom: 2px solid #ddd;">Company</th>
+                    <th style="padding: 10px; border-bottom: 2px solid #ddd;">Why Match?</th>
+                    <th style="padding: 10px; border-bottom: 2px solid #ddd;">Action</th>
+                </tr>
+        """
 
     for job in top_jobs:
         score = job.get("score", 0)
@@ -346,31 +342,29 @@ def send_email(top_jobs: List[dict]):
         job_url = clean_text(job.get("job_url", ""))
 
         html_body += f"""
-            <tr>
-                <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: {color};">
-                    {score}
-                </td>
-                <td style="padding: 10px; border-bottom: 1px solid #eee;">{title}</td>
-                <td style="padding: 10px; border-bottom: 1px solid #eee;">{company}</td>
-                <td style="padding: 10px; border-bottom: 1px solid #eee; font-size: 14px; color: #555;">
-                    {reason}
-                </td>
-                <td style="padding: 10px; border-bottom: 1px solid #eee;">
-                    <a href="{job_url}" style="background-color: #007bff; color: white; padding: 5px 10px; text-decoration: none; border-radius: 4px; font-size: 12px;">Apply</a>
-                </td>
-            </tr>
-        """
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: {color};">
+                        {score}
+                    </td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee;">{title}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee;">{company}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; font-size: 14px; color: #555;">
+                        {reason}
+                    </td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee;">
+                        <a href="{job_url}" style="background-color: #007bff; color: white; padding: 5px 10px; text-decoration: none; border-radius: 4px; font-size: 12px;">Apply</a>
+                    </td>
+                </tr>
+            """
 
     html_body += """
-        </table>
-        <p style="margin-top: 20px; font-size: 12px; color: #888;">
-            Powered by CareerScout-Agent using LangChain & Python.
-        </p>
-    </body>
-    </html>
-    """
-
-    html_body = clean_text(html_body)
+            </table>
+            <p style="margin-top: 20px; font-size: 12px; color: #888;">
+                Powered by CareerScout-Agent using LangChain & Python.
+            </p>
+        </body>
+        </html>
+        """
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = Header(subject, "utf-8")
@@ -385,3 +379,71 @@ def send_email(top_jobs: List[dict]):
         print(f"📧  Email sent successfully to {receiver}!")
     except Exception as e:
         print(f"❌  Email sending failed: {e}")
+
+
+def main():
+    # 1. Scraping
+    df = pd.DataFrame()
+    for location in LOCATIONS:
+        for term in SEARCH_TERMS:
+            jobs_df = get_jobs_data(location, term)
+            if jobs_df is None or jobs_df.empty:
+                continue
+            # Track which keyword/location pulled this job (useful for debugging and tuning).
+            jobs_df["search_term"] = term
+            jobs_df["search_location"] = location
+            df = pd.concat([df, jobs_df], ignore_index=True, sort=False)
+
+    if df.empty:
+        return
+
+    # De-duplicate across keywords/locations.
+    if "job_url" in df.columns:
+        df = df.drop_duplicates(subset=["job_url"], keep="first")
+
+    # # leave 3 jobs for testing
+    # df = df.head(3)
+
+    scored_jobs = []
+
+    req_proxies = {"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None
+
+    # 2. Evaluation Loop
+    print(f"🧠  Analyzing {len(df)} jobs with AI...")
+
+    for _, row in df.iterrows():
+        title = clean_text(row.get("title", "Unknown"))
+        description = clean_text(row.get("description"))
+        job_url = clean_text(row.get("job_url"))
+
+        if not description or len(description) < 50:
+            if job_url:
+                description = clean_text(fetch_missing_description(job_url, proxies=req_proxies))
+
+        if not description or len(description) < 50:
+            print(f"   ⚠️  Skipping '{title}' due to insufficient description.")
+            continue
+
+        evaluation = evaluate_job(title, description)
+
+        print()
+        print(f"   📝 '{title}' scored {evaluation['score']}: {evaluation['reason']}")
+
+        if evaluation["score"] >= 50:  # 阈值过滤
+            scored_jobs.append({
+                "title": clean_text(title),
+                "company": clean_text(row.get("company")),
+                "job_url": clean_text(row.get("job_url")),
+                "score": evaluation["score"],
+                "reason": clean_text(evaluation["reason"])
+            })
+
+    # 3. Sorting & Sending
+    scored_jobs.sort(key=lambda x: x["score"], reverse=True)
+    top_20 = scored_jobs[:20]
+
+    send_email(top_20)
+
+
+if __name__ == "__main__":
+    main()
