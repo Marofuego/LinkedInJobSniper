@@ -295,7 +295,7 @@ def send_email(top_jobs: List[dict]):
 
     sender = clean_text(os.getenv("EMAIL_SENDER_LALA"))
     password = clean_text(os.getenv("EMAIL_PASSWORD_LALA"))
-    receiver = clean_text(os.getenv("EMAIL_RECEIVER"))
+    receiver = clean_text(os.getenv("EMAIL_RECEIVER_LALA"))
 
     if not sender or not password or not receiver:
         print("❌  Missing email configuration.")
